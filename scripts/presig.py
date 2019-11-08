@@ -16,7 +16,7 @@ class FastaCache:
     
     
     def initialize_fasta(self, fa):
-        self.fasta = pyfaidx.Fasta(fa)
+        self.fasta = Fasta(fa)
         self.seqcache.clear()
 
     def __init__(self, fa):
@@ -46,7 +46,7 @@ class BasicContextualizer:
         self.fasta = None
     
     def initialize_fasta(self, fa):
-        self.fasta = pyfaidx.Fasta(fa)
+        self.fasta = Fasta(fa)
 
     def get_seq(self, seqname):
         return str(self.fasta[seqname])
@@ -55,8 +55,8 @@ class BasicContextualizer:
         return str(self.fasta[seqname][start:end])
     
     def get_reference_contexts(self, seqname, zero_based_start, zero_based_end, context_len = 25):
-        ref_context_fiveprime = str(ref[seqname][zero_based_start - context_len:zero_based_start])
-        ref_context_threeprime = str(ref[seqname][zero_based_end+1:zero_based_end+1 + context_len])
+        ref_context_fiveprime = str(self.fasta[seqname][zero_based_start - context_len:zero_based_start])
+        ref_context_threeprime = str(self.fasta[seqname][zero_based_end+1:zero_based_end+1 + context_len])
         return ref_context_fiveprime, ref_context_threeprime
 
 def chop(s, ext):
@@ -70,6 +70,12 @@ def basename(fi, ext = ".maf"):
 def dirname(fi):
     return "/".join(fi.split("/")[:-1])
 
+GLOBAL_MAX_MH_LEN = 5
+GLOBAL_MAX_RPT_LEN = 5
+GLOBAL_MAX_INDEL_LEN = 5
+
+GLOBAL_LT_INDEL_WARNING = False
+GLOBAL_UNKOWN_TYPE_WARNING = False
         
 
 GLOBAL_SBS96_FEATURES = [
@@ -261,6 +267,106 @@ def parse_args():
 
     return parser.parse_args()
 
+"""
+Detects microhomology on flanking portions of variants
+"""
+def detect_microhomology(ref_allele, alt_allele,
+                            reflen, altlen,
+                            ref_context_fiveprime, ref_context_threeprime):
+    mh = False
+    mh_len = 0
+    head_mh_seq = ""
+    tail_mh_seq = ""
+    head_mh_valid = True
+    tail_mh_valid = True
+    for i in range(1, 1 + GLOBAL_MAX_MH_LEN):
+        if reflen > altlen:
+            head_mh_seq = ref_allele[0:i]
+            tail_mh_seq = ref_allele[len(ref_allele) - i : len(ref_allele)]
+        else:
+            head_mh_seq = alt_allele[0:i]
+            tail_mh_seq = alt_allele[len(alt_allele) - i : len(alt_allele)]
+        fiveprime_mh_seq = ref_context_fiveprime[len(ref_context_fiveprime) - i : len(ref_context_fiveprime)]
+        threeprime_mh_seq = ref_context_threeprime[0:i]
+        if tail_mh_seq == fiveprime_mh_seq:
+            # write_err("5\' symm:", tail_mh_seq, ";", "context:",
+            #     ref_context_fiveprime,
+            #     "ref:", ref_allele,
+            #     "alt:", alt_allele)
+            mlen = len(tail_mh_seq)
+            mh_len = max(mh_len, mlen)
+        if head_mh_seq == threeprime_mh_seq:
+            mlen = len(head_mh_seq)
+            mh_len = max(mh_len, mlen)
+    if mh_len > 0:
+        mh = True
+
+    return mh, mh_len
+
+"""
+Handles repeat counts for any number of base pairs in both directions
+using a single loop.
+Takes the ref and alt alleles, their lengths, and the fiveprime/threeprime ref contexts.
+Returns a boolean indicating whether the sequence is an INDEL of a repeat unit
+and the "len", which is really the number of repeat units surrounding the variant.
+"""
+def detect_repeat(ref_allele, alt_allele,
+                    ref_len, alt_len,
+                    ref_context_fiveprime, ref_context_threeprime):
+    
+    global GLOBAL_LT_INDEL_WARNING
+    rpt = False
+    rpt_len = 0
+    ## Handle repeat counts in either direction,
+    ## though most VCF / MAF files will be left-aligned and trimmed.
+    ## First check repeats 3' of our SSV
+    seq = ""
+
+    ## This line handles both trimmed and untrimmed alleles
+    ## by removing dashes and any remaining bases.
+    seq = ref_allele[len(alt_allele.strip("-")):] if ref_len > alt_len else alt_allele[len(ref_allele.strip("-")):]
+
+    seq_start = 0
+    seq_end = len(seq)
+    fiveprime_symmetry_valid = True
+    for i in range(0, GLOBAL_MAX_RPT_LEN):
+        ref_seq = ref_context_threeprime[seq_start:seq_end]
+        fiveprime_ref_seq = ref_context_fiveprime[len(ref_context_fiveprime) - seq_end: len(ref_context_fiveprime) - seq_start]
+        #write_err(fiveprime_ref_seq, seq, ref_seq)                     
+        if (fiveprime_symmetry_valid and fiveprime_ref_seq == seq):
+            rpt = True
+            if not GLOBAL_LT_INDEL_WARNING:
+                write_err("Warning: INDELS don't appear to be left-aligned.", ref_context_fiveprime, ref_allele, alt_allele, ref_context_threeprime)
+                GLOBAL_LT_INDEL_WARNING = True
+            rpt_len = rpt_len + 1
+            if rpt_len == GLOBAL_MAX_RPT_LEN:
+                break
+        else:
+            fiveprime_symmetry_valid = False
+
+        #write_err(start_pos, seq, ref_seq)
+        if ref_seq == seq:
+            rpt = True
+            rpt_len = rpt_len + 1
+            if rpt_len == GLOBAL_MAX_RPT_LEN:
+                break
+        else:
+            break
+        seq_start += len(seq)
+        seq_end += len(seq)                           
+
+    return rpt, rpt_len
+
+def classify_SBS_feature(ref_allele, alt_allele, ref_context_fiveprime, ref_context_threeprime):
+    sbs_feature = None
+
+    if strandcomp(ref_allele) == alt_allele:
+        alt_allele = revcomp(alt_allele)
+    sbs_feature = jsbs(ref_context_fiveprime[-1], strandcomp(ref_allele), alt_allele, ref_context_threeprime[0])
+    assert sbs_feature in GLOBAL_SBS96_HASHSET
+    
+    return sbs_feature
+
 
 """
 Determines what feature a given variant represents (e.g. SBS A[C>T]G, or one
@@ -272,17 +378,115 @@ the sequence context of a variant and
 - a header for determining which fields to grab.
 It then returns a feature and a feature type in ["ID", "SBS", "DBS"]
 """
-def maf_line_to_feature(line, contextualizer,
-                         header_d, logfi = None):
+def maf_line_to_feature(line,
+                        contextualizer,
+                        header_d,
+                        sbs_d,
+                        id_d,
+                        logfi = None,
+                        sigprofiler = False,
+                        args = None):
     ## The reported feature, e.g. A[C->A]G or 2:Del:M1
     feature = None
     ## One of indel, SBS, DBS, or SV
     feature_type = None
 
     line = line.strip().split("\t")
+    vtype = tokens[header_d["Variant_Type"]]
+    chrom = tokens[header_d["Chromosome"]]
+    sample = tokens[header_d[id_field]]
+    start_pos = tokens[header_d["Start_position"]]
+    zero_based_start = int(start_pos) - 1;
+    end_pos = tokens[header_d["End_position"]]
+    zero_based_end = int(end_pos) - 1;
+
+    ref_allele = str(tokens[header_d["Reference_Allele"]]).upper()
+    ref_len = len(ref_allele)
+    alt_allele = str(tokens[header_d["Tumor_Seq_Allele2"]]).upper()
+
+    #fasta_allele = str(ref[chrom][zero_based_start:zero_based_start+ref_len])
+    fasta_allele = contextualizer.get_subseq(chrom, zero_based_start, zero_based_end + ref_len)
+
+    strand = 1
+
+    ref_context_fiveprime, ref_context_threeprime = contextualizer.get_reference_contexts(chrom, zero_based_start, zero_based_end, 25)
+    #write_err(ref_context_fiveprime, ref_allele, fasta_allele, alt_allele, ref_context_threeprime)
+
+    if vtype == "SNP" or vtype == "SNV":
+        assert fasta_allele == ref_allele
+        feature = classify_SBS_feature(ref_allele, alt_allele, ref_context_fiveprime, ref_context_threeprime)
+        feature_type = "SBS"
+        sbs_d[sample][feature] += 1
+
+    elif vtype == "DEL" or vtype == "INS":
+        ## Get the length of the variant
+        vlen, reflen, altlen = calculate_indel_length(ref_allele , alt_allele)
+
+        feat_type = "Del" if  reflen > altlen else "Ins"
+        feat_len = min(vlen, GLOBAL_MAX_INDEL_LEN)
+        
+        feat_context = "NA"
+        feat_context_len = 0
+        rpt_len = 0
+        rpt = False
+        mh_len = 0
+        mh = False
+
+        ## If reflen > altlen (i.e., the variant is a deletion),
+        ## the feature is the single base from the REF allele which remains
+        ## after stripping off len(ALT allele) bases. 
+        ## This base must then be strand-complemented (i.e., must be T or C)
+        ## The old way of doing this was like so. This method is slower per variant than the
+        ## ternary operator.
+        # if vlen == 1 and feat_type == "Del":
+        #     feat_context = strandcomp(ref_allele[len(alt_allele.strip("-")):])
+        # elif vlen == 1 and feat_type == "Ins":
+        #     feat_context = strandcomp(alt_allele[len(ref_allele.strip("-")):])
+        rpt, rpt_len = detect_repeat(ref_allele, alt_allele,
+                                        reflen, altlen,
+                                        ref_context_fiveprime, ref_context_threeprime)
+        mh, mh_len = detect_microhomology(ref_allele, alt_allele,
+                                        reflen, altlen,
+                                        ref_context_fiveprime, ref_context_threeprime)
+
+        if vlen == 1:
+            feat_context = strandcomp(ref_allele[len(alt_allele.strip("-")):])  if \
+                reflen > altlen else \
+                strandcomp(alt_allele[len(ref_allele.strip("-")):])
+            feat_context_len = rpt_len
+        elif rpt:
+            feat_context = "R"
+            feat_context_len = rpt_len
+        elif mh and vtype == "DEL":
+            feat_context = "M"
+            feat_context_len = mh_len
+        else:
+            feat_context = "R"
+            feat_context_len = 0
 
 
-    return feature, feature_type
+        feature = jid(feat_len, feat_type, feat_context, feat_context_len)
+        feature_type = "ID"
+        sample_ID83_d[sample][feature] += 1
+    else:
+        global GLOBAL_UNKOWN_TYPE_WARNING
+        if not GLOBAL_UNKOWN_TYPE_WARNING:
+            write_err("Invalid variant type:", vtype)
+            GLOBAL_UNKOWN_TYPE_WARNING = True
+        return "", "", vtype
+
+    if feature not in GLOBAL_SBS96_HASHSET and feature not in GLOBAL_ID83_HASHSET:
+        write_err("ERROR: invalid feature", feature,
+        sample, chrom, start_pos, end_pos, vtype, ref_context_fiveprime,  ref_allele, alt_allele, ref_context_threeprime)
+
+    if args.sigprofiler:
+        print(make_minimal_record(args.project, sample, "WGS", "GRCh37", vtype, chrom, start_pos, end_pos, ref_allele, alt_allele, "SOMATIC"))
+
+    if logfi is not None:
+        logfi.write("\t".join([sample, chrom, feature_type, feature, start_pos, end_pos, vtype, ref_allele, alt_allele, ref_context_fiveprime, ref_context_threeprime]) + "\n")
+
+
+    return feature, feature_type, vtype
 
 if __name__ == "__main__":
 
@@ -298,6 +502,8 @@ if __name__ == "__main__":
     ## Each Key is a sample name
     sample_SBS96_d = defaultdict(lambda : defaultdict(int))
     sample_ID83_d = defaultdict(lambda : defaultdict(int))
+    ## Holds the count of total variants processed (i.e., SNP: N, INS: N, DNP: N)
+    total_var_count_d = defaultdict(int)
 
 
     header_d = {
@@ -318,8 +524,7 @@ if __name__ == "__main__":
     header_line = None
     ref = None
     id_field = None
-    if args.ref is not None:
-        ref = Fasta(args.ref)
+
     if args.custom_id is not None:
         id_field = args.custom_id
     else:
@@ -327,193 +532,32 @@ if __name__ == "__main__":
 
     logfi = open("logfile.txt", "w")
     
+    bc = BasicContextualizer()
+    bc.initialize_fasta(args.ref)
 
     with open(args.maf, "r") as mfi:
         for line in mfi:
             line = line.strip()
             tokens = line.split("\t")
             if "Hugo_Symbol" not in line:
-                vtype = tokens[header_d["Variant_Type"]]
-                chrom = tokens[header_d["Chromosome"]]
-                sample = tokens[header_d[id_field]]
-                start_pos = tokens[header_d["Start_position"]]
-                zero_based_start = int(start_pos) - 1;
-                end_pos = tokens[header_d["End_position"]]
-                zero_based_end = int(end_pos) - 1;
-
-                ref_allele = str(tokens[header_d["Reference_Allele"]]).upper()
-                alt_allele = str(tokens[header_d["Tumor_Seq_Allele2"]]).upper()
-
-                ref_len = len(ref_allele)
-                fasta_allele = str(ref[chrom][zero_based_start:zero_based_start+ref_len])
-
-                strand = 1
-
-                sbs_feature = ""
-                indel_feature = ""
-
+                feature, feature_type, vtype = maf_line_to_feature(line, bc,
+                header_d, sample_SBS96_d,
+                sample_ID83_d, logfi,
+                args.sigprofiler, args)  
+                total_var_count_d[vtype] += 1       
                 
-                
-                ref_context_fiveprime = str(ref[chrom][zero_based_start - 25:zero_based_start])
-                ref_context_threeprime = str(ref[chrom][zero_based_end+1:zero_based_end+1 + 25])
-                #write_err(ref_context_fiveprime, ref_allele, fasta_allele, alt_allele, ref_context_threeprime)
-
-                if vtype == "SNP":
-                    assert fasta_allele == ref_allele
-                    if strandcomp(ref_allele) == alt_allele:
-                        alt_allele = revcomp(alt_allele)
-                    sbs_feature = jsbs(ref_context_fiveprime[-1], strandcomp(ref_allele), alt_allele, ref_context_threeprime[0])
-                    #write_err(sbs_feature)
-                    if args.sigprofiler:
-                        ## make_minimal_record(cancer_type, sample, assay, genome, variant_type, chrom, pos, ref, alt, mutation_type = "Somatic"):
-                        print(make_minimal_record(args.project, sample, "WGS", "GRCh37", vtype, chrom, start_pos, end_pos, ref_allele, alt_allele, "SOMATIC"))
-                    else:
-                        sample_SBS96_d[sample][sbs_feature] += 1
-                    
-                elif vtype == "DEL" or vtype == "INS":
-
-                    ## Get the length of the variant
-                    vlen, reflen, altlen = c_indel_len(ref_allele , alt_allele)
-                    feat_type = "NA"
-                    feat_len = min(vlen, 5)
-                    feat_context = "NA"
-                    feat_context_len = 0
-
-                    max_rpt_len  = 5
-                    rpt_len = 0
-                    rpt = False
-
-                    max_mh_len = 5
-                    mh_len = 0
-                    mh = False
-
-
-                    ## Get the variant type
-                    ## These checks are currently overly thorough and use unreachable conditions,
-                    ## given that we require vtype == "DEL|INS" above. TODO
-                    vlower = vtype.lower()
-                    if reflen > altlen and vlower == "del" or vlower == "deletion":
-                        feat_type = "Del"
-                    elif reflen < altlen and vlower == "ins" or vlower == "insertion":
-                        feat_type = "Ins"
-                    else:
-                        write_err("Undefined variant type", vtype, chrom, start_pos, sample)
-                        exit(9)
-
-                    ## TODO: handle strandedness
-
-
-
-                    ## Handle repeat counts in either direction,
-                    ## though most VCF / MAF files will be left-aligned and trimmed.
-                    ## First check repeats 3' of our SSV
-                    seq = ""
-                    if vtype == "DEL":
-                        ## This line handles both trimmed and untrimmed alleles
-                        ## by removing dashes and any remaining bases.
-                        seq = ref_allele[len(alt_allele.strip("-")):]
-                    else:
-                        seq = alt_allele[len(ref_allele.strip("-")):]
-                    seq_start = 0
-                    seq_end = len(seq)
-                    fiveprime_symmetry_valid = True
-                    for i in range(0, max_rpt_len):
-                        ref_seq = ref_context_threeprime[seq_start:seq_end]
-                        fiveprime_ref_seq = ref_context_fiveprime[len(ref_context_fiveprime) - seq_end: len(ref_context_fiveprime) - seq_start]
-                        #write_err(fiveprime_ref_seq, seq, ref_seq)                     
-                        if (fiveprime_symmetry_valid and fiveprime_ref_seq == seq):
-                            rpt = True
-                            write_err("Warning: INDELS don't appear to be trimmed.", vtype, ref_context_fiveprime, ref_allele, alt_allele, ref_context_threeprime)
-                            rpt_len = rpt_len + 1
-                            if rpt_len == max_rpt_len:
-                                break
-                        else:
-                            fiveprime_symmetry_valid = False
-
-                        #write_err(start_pos, seq, ref_seq)
-                        if ref_seq == seq:
-                            rpt = True
-                            rpt_len = rpt_len + 1
-                            if rpt_len == max_rpt_len:
-                                break
-                        else:
-                            break
-                        seq_start += len(seq)
-                        seq_end += len(seq)
-                    #write_err(start_pos, ref_seq, rpt, mh)
-                    if rpt and vlen > 1:
-                        feat_context = "R"
-                        feat_context_len = rpt_len
-                    if not mh:
-                        feat_context_len = rpt_len
-                        if vlen > 1:
-                            feat_context = "R"
-                    if (vtype == "INS" and feat_context_len >=5) or (vtype == "DEL" and vlen == 1 and feat_context_len >= 5):
-                        feat_context_len = 5                            
-
-
-                    
-                    ## Handle the base feature of 1-base deletions / insertions
-                    if vlen == 1 and feat_type == "Del":
-                        feat_context = strandcomp(ref_allele[len(alt_allele.strip("-")):])
-                        assert len(feat_context) == 1
-                    elif vlen == 1 and feat_type == "Ins":
-                        feat_context = strandcomp(alt_allele[len(ref_allele.strip("-")):])
-                        #write_err(ref_allele, alt_allele, feat_context, len(feat_context))
-                        assert len(feat_context) == 1
-
-                    ## Handle microhomology
-                    head_mh_seq = ""
-                    tail_mh_seq = ""
-                    head_mh_valid = True
-                    tail_mh_valid = True
-                    if vlen > 1 and vtype == "DEL" and not rpt:
-                        for i in range(1, 1+max_mh_len):
-                            if vtype == "DEL":
-                                head_mh_seq = ref_allele[0:i]
-                                tail_mh_seq = ref_allele[len(ref_allele) - i : len(ref_allele)]
-                            else:
-                                head_mh_seq = alt_allele[0:i]
-                                tail_mh_seq = alt_allele[len(alt_allele) - i : len(alt_allele)]
-                            fiveprime_mh_seq = ref_context_fiveprime[len(ref_context_fiveprime) - i : len(ref_context_fiveprime)]
-                            threeprime_mh_seq = ref_context_threeprime[0:i]
-                            if tail_mh_seq == fiveprime_mh_seq:
-                                write_err("5\' symm:", tail_mh_seq, ";", "context:",
-                                 ref_context_fiveprime,
-                                  "ref:", ref_allele,
-                                  "alt:", alt_allele)
-                                mlen = len(tail_mh_seq)
-                                mh_len = max(mh_len, mlen)
-                            if head_mh_seq == threeprime_mh_seq:
-                                mlen = len(head_mh_seq)
-                                mh_len = max(mh_len, mlen)
-                        if mh_len > 0:
-                            feat_context = "M"
-                            feat_context_len = mh_len
-                            mh = True
-
-                    
-                    
-                    indel_feature = jid(feat_len, feat_type, feat_context, feat_context_len)
-                    #write_err(indel_feature)
-
-                    if args.sigprofiler:
-                        pass
-                    sample_ID83_d[sample][indel_feature] += 1
-                    
-
-                else:
-                    write_err(["Invalid mutation type", vtype])
-                if indel_feature not in GLOBAL_ID83_HASHSET and sbs_feature not in GLOBAL_SBS96_HASHSET:
-                    write_err("ERROR: invalid feature", sbs_feature, indel_feature,
-                    sample, chrom, start_pos, end_pos, vtype, ref_allele, alt_allele)
-                logfi.write("\t".join([sample, chrom, sbs_feature, indel_feature, start_pos, end_pos, vtype, ref_allele, alt_allele, ref_context_fiveprime, ref_context_threeprime]) + "\n")
+                # if vtype != "SNP" and vtype != "INS" and vtype != "DEL":
+                #     write_err(["Invalid mutation type", vtype])
 
             else:
                 header_line = line
                 if (args.custom_id):
                     header_d = reheader(header_line)
                     continue
+    
+    write_err("Processed the following number of variants:")
+    for t in total_var_count_d:
+        write_err(t, ":", total_var_count_d[t])
 
 
     ## Write our SBS96 counts
