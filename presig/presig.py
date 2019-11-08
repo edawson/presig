@@ -17,23 +17,20 @@ class FastaCache:
     
     def initialize_fasta(self, fa):
         self.fasta = Fasta(fa)
-        self.seqcache.clear()
-
-    def __init__(self, fa):
-        self.fasta = None
         self.seqcache = defaultdict(str)
-        self.max_cache_size = 5
-        initialize_fasta(fa)
 
     def get_seq(self, seqname):
-        if len(seqcache) >= max_cache_size:
+        seqname = str(seqname)  
+        if not seqname in self.seqcache:
             self.seqcache.clear()
-        if not seqname in seqcache:
-            seqcache[str(seqname)] = str(self.fasta[seqname])
-        return seqcache[str(seqname)]
+            self.seqcache[seqname] = str(self.fasta[seqname])
+        return self.seqcache[seqname]
     
     def get_seq_substr(self, seqname, start, end):
-        return self.get_seq(seqname)[start:end]
+        if not seqname in self.seqcache:
+            self.seqcache.clear()
+            self.seqcache[seqname] = str(self.fasta[seqname])
+        return self.seqcache[seqname][start:end]
     
     def get_reference_contexts(self, seqname, zero_based_start, zero_based_end, context_len = 25):
         ref_context_fiveprime =  self.get_seq_substr(seqname, zero_based_start - context_len, zero_based_start)
@@ -58,6 +55,24 @@ class BasicContextualizer:
         ref_context_fiveprime = str(self.fasta[seqname][zero_based_start - context_len:zero_based_start])
         ref_context_threeprime = str(self.fasta[seqname][zero_based_end+1:zero_based_end+1 + context_len])
         return ref_context_fiveprime, ref_context_threeprime
+
+class CachedContextualizer:
+
+    def __init__(self):
+        self.fc = None
+    
+    def initialize_fasta(self, fa):
+        self.fc = FastaCache()
+        self.fc.initialize_fasta(fa)
+    
+    def get_seq(self, seqname):
+        return self.fc.get_seq(seqname)
+    
+    def get_subseq(self, seqname, start, end):
+        return self.fc.get_seq_substr(seqname, start, end)
+    
+    def get_reference_contexts(self, seqname, zero_based_start, zero_based_end, context_len = 25):
+        return self.fc.get_reference_contexts(seqname, zero_based_start, zero_based_end, context_len)
 
 def chop(s, ext):
     if s.endswith(ext):
@@ -264,6 +279,7 @@ def parse_args():
     parser.add_argument("-d", "--directory", dest="directory", default="input", help="Input/Output directory")
     parser.add_argument("-f", "--fasta", required=True, dest="ref", help="A fasta file reference.")
     parser.add_argument("-C", "--custom-id", dest="custom_id", help="Column name of custom, preferred ID field", default=None, type = str)
+    parser.add_argument("-L", "--log", dest="log", action="store_true", help="Log each mutation, its feature and its context to a logfile.")
 
     return parser.parse_args()
 
@@ -360,9 +376,9 @@ def detect_repeat(ref_allele, alt_allele,
 def classify_SBS_feature(ref_allele, alt_allele, ref_context_fiveprime, ref_context_threeprime):
     sbs_feature = None
 
-    if strandcomp(ref_allele) == alt_allele:
-        alt_allele = revcomp(alt_allele)
-    sbs_feature = jsbs(ref_context_fiveprime[-1], strandcomp(ref_allele), alt_allele, ref_context_threeprime[0])
+    if strand_complement(ref_allele) == alt_allele:
+        alt_allele = reverse_complement(alt_allele)
+    sbs_feature = join_sbs(ref_context_fiveprime[-1], strand_complement(ref_allele), alt_allele, ref_context_threeprime[0])
     assert sbs_feature in GLOBAL_SBS96_HASHSET
     
     return sbs_feature
@@ -450,9 +466,9 @@ def maf_line_to_feature(line,
                                         ref_context_fiveprime, ref_context_threeprime)
 
         if vlen == 1:
-            feat_context = strandcomp(ref_allele[len(alt_allele.strip("-")):])  if \
+            feat_context = strand_complement(ref_allele[len(alt_allele.strip("-")):])  if \
                 reflen > altlen else \
-                strandcomp(alt_allele[len(ref_allele.strip("-")):])
+                strand_complement(alt_allele[len(ref_allele.strip("-")):])
             feat_context_len = rpt_len
         elif rpt:
             feat_context = "R"
@@ -465,7 +481,7 @@ def maf_line_to_feature(line,
             feat_context_len = 0
 
 
-        feature = jid(feat_len, feat_type, feat_context, feat_context_len)
+        feature = join_id(feat_len, feat_type, feat_context, feat_context_len)
         feature_type = "ID"
         sample_ID83_d[sample][feature] += 1
     else:
@@ -489,14 +505,6 @@ def maf_line_to_feature(line,
     return feature, feature_type, vtype
 
 if __name__ == "__main__":
-
-    ## Cache oft-used functions locally for performance.
-    jsbs = join_sbs
-    jid = join_id
-    c_indel_len = calculate_indel_length
-    strandcomp = strand_complement
-    revcomp = reverse_complement
-
 
     ## Holds the sample->mutational counts vectors
     ## Each Key is a sample name
@@ -530,7 +538,10 @@ if __name__ == "__main__":
     else:
         id_field = "Tumor_Sample_Barcode"
 
-    logfi = open("logfile.txt", "w")
+    logname = "logfile.txt"
+    logfi = None
+    if args.log:
+        logfi = open("logfile.txt", "w")
     
     bc = BasicContextualizer()
     bc.initialize_fasta(args.ref)
@@ -564,7 +575,8 @@ if __name__ == "__main__":
     write_python_tsv(sample_SBS96_d, GLOBAL_SBS96_FEATURES, make_sample_header("MutationType", sample_SBS96_d.keys()), chop(basename(args.maf), ".tsv") + ".SBS96.tsv")
     ## Write our ID83 counts
     write_python_tsv(sample_ID83_d, GLOBAL_ID83_FEATURES, make_sample_header("MutationType", sample_ID83_d.keys()), chop(basename(args.maf), ".tsv") + ".ID83.tsv")
-    logfi.close()
+    if logfi is not None:
+        logfi.close()
     
 
 
