@@ -16,7 +16,7 @@ class FastaCache:
     
     
     def initialize_fasta(self, fa):
-        self.fasta = pyfaidx.FASTA(fa)
+        self.fasta = pyfaidx.Fasta(fa)
         self.seqcache.clear()
 
     def __init__(self, fa):
@@ -30,10 +30,34 @@ class FastaCache:
             self.seqcache.clear()
         if not seqname in seqcache:
             seqcache[str(seqname)] = str(self.fasta[seqname])
+        return seqcache[str(seqname)]
     
     def get_seq_substr(self, seqname, start, end):
         return self.get_seq(seqname)[start:end]
+    
+    def get_reference_contexts(self, seqname, zero_based_start, zero_based_end, context_len = 25):
+        ref_context_fiveprime =  self.get_seq_substr(seqname, zero_based_start - context_len, zero_based_start)
+        ref_context_threeprime = self.get_seq_substr(seqname, zero_based_end + 1, zero_based_end + 1 + context_len)
+        return ref_context_fiveprime, ref_context_threeprime
 
+class BasicContextualizer:
+
+    def __init__(self):
+        self.fasta = None
+    
+    def initialize_fasta(self, fa):
+        self.fasta = pyfaidx.Fasta(fa)
+
+    def get_seq(self, seqname):
+        return str(self.fasta[seqname])
+    
+    def get_subseq(self, seqname, start, end):
+        return str(self.fasta[seqname][start:end])
+    
+    def get_reference_contexts(self, seqname, zero_based_start, zero_based_end, context_len = 25):
+        ref_context_fiveprime = str(ref[seqname][zero_based_start - context_len:zero_based_start])
+        ref_context_threeprime = str(ref[seqname][zero_based_end+1:zero_based_end+1 + context_len])
+        return ref_context_fiveprime, ref_context_threeprime
 
 def chop(s, ext):
     if s.endswith(ext):
@@ -219,7 +243,9 @@ def strand_complement(seq):
     return "".join([GLOBAL_STRANDCOMP_D[i] for i in seq])
 
 
-
+"""
+Handles command line argurment parsing with argparse
+"""
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--maf", required=True, dest="maf", help="MAF file from which to extract matrix.")
@@ -235,6 +261,28 @@ def parse_args():
 
     return parser.parse_args()
 
+
+"""
+Determines what feature a given variant represents (e.g. SBS A[C>T]G, or one
+of the ID83 features, etc).
+Takes 
+- a variant (as a line in a MAF file)
+- a contextualizer, which is just a wrapper around how to get
+the sequence context of a variant and
+- a header for determining which fields to grab.
+It then returns a feature and a feature type in ["ID", "SBS", "DBS"]
+"""
+def maf_line_to_feature(line, contextualizer,
+                         header_d, logfi = None):
+    ## The reported feature, e.g. A[C->A]G or 2:Del:M1
+    feature = None
+    ## One of indel, SBS, DBS, or SV
+    feature_type = None
+
+    line = line.strip().split("\t")
+
+
+    return feature, feature_type
 
 if __name__ == "__main__":
 
