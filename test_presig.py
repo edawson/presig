@@ -79,6 +79,18 @@ class PSTests(unittest.TestCase):
         mh, mh_len = detect_microhomology("A-", "ATGTTGTTT", 1, 9, "AGTTAATCCAGATAGAAGCACATTT", "GTTTGTTTTGTTTGTTTGTTTGTTT")
         self.assertTrue(mh)
         self.assertEqual(mh_len,3)
+
+    def test_calculate_end_1(self):
+        end = calculate_end_position(192092, "A", "T")
+        self.assertEqual(end, 192092)
+    
+    def test_calculate_end_2(self):
+        end = calculate_end_position(10000, "A", "AAA")
+        self.assertEqual(end, 10000)
+    
+    def test_calculate_end_3(self):
+        end = calculate_end_position(100, "AC", "GG")
+        self.assertEqual(end, 101)
         
 if __name__ == '__main__':
     from pycotap import TAPTestRunner

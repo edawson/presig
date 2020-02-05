@@ -174,7 +174,8 @@ If isSampleData is passed as true, no validation is performed.
 Validates that the number of dictionary entries is equal to nfeatures.
 """
 def parse_tidy_sig_file(sig_file, isSampleData = False, nFeatures = 96):
-    tidy_sig_d = defaultdict(lambda : defaultdict(defaultdict(float)))
+    nested_d = lambda : defaultdict(nested_d)
+    tidy_sig_d = nested_d()
     vec_d = defaultdict(list)
 
     header_d = None
@@ -186,6 +187,8 @@ def parse_tidy_sig_file(sig_file, isSampleData = False, nFeatures = 96):
             tokens = line.split("\t")
             if not "Context" in line:
                 tidy_sig_d[ tokens[header_d["Signature"]] ][ tokens[header_d["Change"]] ][ tokens[header_d["Context"]] ] = float(tokens[header_d["Amount"]])
+                #tidy_sig_d[ tokens[header_d["Signature"]] ] = float(tokens[header_d["Amount"]])
+
             else:
                 if header_d is not None:
                     write_err("ERROR: Two headers present. Exiting.")
@@ -280,6 +283,20 @@ def calculate_indel_length(ref, alt):
     ref = ref.strip("-")
     alt = alt.strip("-")
     return abs(len(ref) - len(alt)), len(ref), len(alt)
+
+"""
+Given a reference start position and a reference + alternate allele,
+calculate the genomic end position of the variant.
+"""
+def calculate_end_position(start_position, ref, alt):
+    var_len, ref_len, alt_len = calculate_indel_length(ref, alt)
+    ## Set the var_len to 1 if we have an insertion OR
+    ## a SNP
+    if alt_len > ref_len:
+        var_len = 1
+    elif var_len == 0:
+        var_len = alt_len
+    return start_position + var_len - 1
 
 """
 Creates a minimal representation of a variant that is compatible with the SigProfiler text format.
