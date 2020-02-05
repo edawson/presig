@@ -91,6 +91,10 @@ class PSTests(unittest.TestCase):
     def test_calculate_end_3(self):
         end = calculate_end_position(100, "AC", "GG")
         self.assertEqual(end, 101)
+
+    def test_calculate_end_4(self):
+        end = calculate_end_position(100, "AA", "A")
+        self.assertEqual(end, 101)
         
 if __name__ == '__main__':
     from pycotap import TAPTestRunner
