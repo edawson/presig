@@ -162,6 +162,46 @@ def reheader(headerline):
     return header 
 
 """
+Reads a file with the following columns:
+Signature Change  Context Amount
+
+and generates a dictionary of signature:change:context:amount
+(i.e., tidy_sig_d["SBS1]["C>T"]["ACG"]=0.3)
+as well as
+a dictionary mapping signature names to a vector of probabilities for each change/context
+
+If isSampleData is passed as true, no validation is performed.
+Validates that the number of dictionary entries is equal to nfeatures.
+"""
+def parse_tidy_sig_file(sig_file, isSampleData = False, nFeatures = 96):
+    tidy_sig_d = defaultdict(lambda : defaultdict(defaultdict(float)))
+    vec_d = defaultdict(list)
+
+    header_d = None
+    r_header_d = None
+
+    with open(sig_file, "r") as ifi:
+        for line in ifi:
+            line = line.strip()
+            tokens = line.split("\t")
+            if not "Context" in line:
+                tidy_sig_d[ tokens[header_d["Signature"]] ][ tokens[header_d["Change"]] ][ tokens[header_d["Context"]] ] = float(tokens[header_d["Amount"]])
+            else:
+                if header_d is not None:
+                    write_err("ERROR: Two headers present. Exiting.")
+                    exit(9)
+                header_d = defaultdict(str)
+                r_header_d = defaultdict(int)
+                ind = 0
+                for i in tokens:
+                    header_d[i] = ind
+                    r_header_d[ind] = i
+                    ind = ind + 1
+
+        return tidy_sig_d, vec_d
+ 
+
+"""
 Undoes alignment trimming of indels,
 replacing bases represented with a "-" with
 the correct base in the reference
@@ -421,6 +461,7 @@ def maf_line_to_feature(line,
     alt_allele = str(tokens[header_d["Tumor_Seq_Allele2"]]).upper()
 
     #fasta_allele = str(ref[chrom][zero_based_start:zero_based_start+ref_len])
+    assert(zero_based_start < zero_based_end + ref_len)
     fasta_allele = contextualizer.get_subseq(chrom, zero_based_start, zero_based_end + ref_len)
 
     strand = 1
