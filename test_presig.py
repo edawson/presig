@@ -93,7 +93,7 @@ class PSTests(unittest.TestCase):
         self.assertEqual(end, 101)
 
     def test_calculate_end_4(self):
-        end = calculate_end_position(100, "AA", "A")
+        end = calculate_end_position(100, "AA", "-")
         self.assertEqual(end, 101)
         
 if __name__ == '__main__':
