@@ -226,6 +226,9 @@ def untrim_indel(chrom, start, zb_start, end, zb_end, ref, alt, fa_ref):
         raise Exception("Exiting.")
     return chrom, start, end, ref, alt
 
+def context_and_change_to_sbs_feature(context, change):
+    return join_sbs(context[0], change[0], change[-1], context[-1])
+
 """
 Produces a trinucleotide context feature string
 from a ref/alt allele and the 5' and 3' bases.
