@@ -98,6 +98,10 @@ if __name__ == "__main__":
                 for i in range(0, len(tokens)):
                     header_d[tokens[i]] = i
 
+    ## Add an entry for all clock-like sigs
+    for samp in sample_to_sig_to_count:
+        sample_to_sig_to_count[samp]["Clock-like"] = sample_to_sig_to_count[samp]["SBS1"] + sample_to_sig_to_count[samp]["SBS5"]
+
     for i in sample_to_sig_to_count:
         for j in sample_to_sig_to_count[i]:
             print("\t".join([str(i), str(j), str(sample_to_sig_to_count[i][j])]))
