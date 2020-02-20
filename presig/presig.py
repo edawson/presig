@@ -91,6 +91,26 @@ GLOBAL_MAX_INDEL_LEN = 5
 
 GLOBAL_LT_INDEL_WARNING = False
 GLOBAL_UNKOWN_TYPE_WARNING = False
+
+GLOBAL_SBS96_CONTEXTS = ["ACA","ACC","ACG","ACT","ACA","ACC",
+                     "ACG","ACT", "ACA","ACC","ACG","ACT",
+                     "ATA","ATC","ATG","ATT","ATA","ATC",
+                     "ATG","ATT","ATA","ATC","ATG","ATT",
+                     "CCA","CCC","CCG","CCT","CCA","CCC",
+                     "CCG","CCT","CCA","CCC","CCG","CCT",
+                     "CTA","CTC","CTG","CTT","CTA","CTC",
+                     "CTG","CTT","CTA","CTC","CTG","CTT",
+                     "GCA","GCC","GCG","GCT","GCA","GCC",
+                     "GCG","GCT","GCA","GCC","GCG","GCT",
+                     "GTA","GTC","GTG","GTT","GTA","GTC",
+                     "GTG","GTT","GTA","GTC","GTG","GTT",
+                     "TCA","TCC","TCG","TCT","TCA","TCC",
+                     "TCG","TCT","TCA","TCC","TCG","TCT",
+                     "TTA","TTC","TTG","TTT","TTA","TTC",
+                     "TTG","TTT","TTA","TTC","TTG","TTT"]
+
+GLOBAL_SBS96_CHANGES = ["C>A","C>G","C>T",
+                    "T>A","T>C","T>G"]
         
 
 GLOBAL_SBS96_FEATURES = [
@@ -109,11 +129,6 @@ GLOBAL_SBS96_FEATURES = [
 "T[T>A]A","T[T>A]C","T[T>A]G","T[T>A]T","T[T>C]A","T[T>C]C","T[T>C]G",
 "T[T>C]T","T[T>G]A","T[T>G]C","T[T>G]G","T[T>G]T"
 ]
-
-# "2:Del:R:0","2:Del:R:1","2:Del:R:2","2:Del:R:3","2:Del:R:4","2:Del:R:5", "2:Del:R:6",
-# "3:Del:R:0","3:Del:R:1","3:Del:R:2","3:Del:R:3","3:Del:R:4","3:Del:R:5", "3:Del:R:6",
-# "4:Del:R:0","4:Del:R:1","4:Del:R:2","4:Del:R:3","4:Del:R:4","4:Del:R:5", "4:Del:R:6",
-# "5:Del:R:0","5:Del:R:1","5:Del:R:2","5:Del:R:3","5:Del:R:4","5:Del:R:5", "5:Del:R:6",
 
 
 GLOBAL_ID83_FEATURES = [
@@ -315,13 +330,14 @@ GLOBAL_REVCOMP_D = {'A':'T','C':'G','G':'C','T':'A','N':'N'}
 def reverse_complement(seq):
     return "".join([GLOBAL_REVCOMP_D[i] for i in seq[::-1]])
 
+
 """
 Strand complements a sequence (i.e., converts
 it to the canonical T/C strand).
 """
 GLOBAL_STRANDCOMP_D = {'A':'T','C':'C','G':'C','T':'T','N':'N'}
-def strand_complement(seq):
-    return "".join([GLOBAL_STRANDCOMP_D[i] for i in seq])
+def strand_complement(seq, reverse= False):
+    return "".join([GLOBAL_STRANDCOMP_D[i] for i in seq]) if not reverse else "".join([GLOBAL_STRANDCOMP_D[i] for i in seq[::-1]])
 
 
 """
@@ -470,6 +486,7 @@ def maf_line_to_feature(line,
     line = line.strip().split("\t")
     vtype = tokens[header_d["Variant_Type"]]
     chrom = tokens[header_d["Chromosome"]]
+    strand = tokens[header_d["Strand"]]
     sample = tokens[header_d[id_field]]
     start_pos = tokens[header_d["Start_position"]]
     zero_based_start = int(start_pos) - 1;
