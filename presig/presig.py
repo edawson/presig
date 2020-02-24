@@ -91,6 +91,28 @@ GLOBAL_MAX_INDEL_LEN = 5
 
 GLOBAL_LT_INDEL_WARNING = False
 GLOBAL_UNKOWN_TYPE_WARNING = False
+
+GLOBAL_PYRIMIDINE_LIST = ["C", "T"]
+
+GLOBAL_SBS96_CONTEXTS = ["ACA","ACC","ACG","ACT","ACA","ACC",
+                     "ACG","ACT", "ACA","ACC","ACG","ACT",
+                     "ATA","ATC","ATG","ATT","ATA","ATC",
+                     "ATG","ATT","ATA","ATC","ATG","ATT",
+                     "CCA","CCC","CCG","CCT","CCA","CCC",
+                     "CCG","CCT","CCA","CCC","CCG","CCT",
+                     "CTA","CTC","CTG","CTT","CTA","CTC",
+                     "CTG","CTT","CTA","CTC","CTG","CTT",
+                     "GCA","GCC","GCG","GCT","GCA","GCC",
+                     "GCG","GCT","GCA","GCC","GCG","GCT",
+                     "GTA","GTC","GTG","GTT","GTA","GTC",
+                     "GTG","GTT","GTA","GTC","GTG","GTT",
+                     "TCA","TCC","TCG","TCT","TCA","TCC",
+                     "TCG","TCT","TCA","TCC","TCG","TCT",
+                     "TTA","TTC","TTG","TTT","TTA","TTC",
+                     "TTG","TTT","TTA","TTC","TTG","TTT"]
+
+GLOBAL_SBS96_CHANGES = ["C>A","C>G","C>T",
+                    "T>A","T>C","T>G"]
         
 
 GLOBAL_SBS96_FEATURES = [
@@ -109,11 +131,6 @@ GLOBAL_SBS96_FEATURES = [
 "T[T>A]A","T[T>A]C","T[T>A]G","T[T>A]T","T[T>C]A","T[T>C]C","T[T>C]G",
 "T[T>C]T","T[T>G]A","T[T>G]C","T[T>G]G","T[T>G]T"
 ]
-
-# "2:Del:R:0","2:Del:R:1","2:Del:R:2","2:Del:R:3","2:Del:R:4","2:Del:R:5", "2:Del:R:6",
-# "3:Del:R:0","3:Del:R:1","3:Del:R:2","3:Del:R:3","3:Del:R:4","3:Del:R:5", "3:Del:R:6",
-# "4:Del:R:0","4:Del:R:1","4:Del:R:2","4:Del:R:3","4:Del:R:4","4:Del:R:5", "4:Del:R:6",
-# "5:Del:R:0","5:Del:R:1","5:Del:R:2","5:Del:R:3","5:Del:R:4","5:Del:R:5", "5:Del:R:6",
 
 
 GLOBAL_ID83_FEATURES = [
@@ -162,6 +179,49 @@ def reheader(headerline):
     return header 
 
 """
+Reads a file with the following columns:
+Signature Change  Context Amount
+
+and generates a dictionary of signature:change:context:amount
+(i.e., tidy_sig_d["SBS1]["C>T"]["ACG"]=0.3)
+as well as
+a dictionary mapping signature names to a vector of probabilities for each change/context
+
+If isSampleData is passed as true, no validation is performed.
+Validates that the number of dictionary entries is equal to nfeatures.
+"""
+def parse_tidy_sig_file(sig_file, isSampleData = False, nFeatures = 96):
+    nested_d = lambda : defaultdict(nested_d)
+    tidy_sig_d = nested_d()
+    vec_d = defaultdict(list)
+
+    header_d = None
+    r_header_d = None
+
+    with open(sig_file, "r") as ifi:
+        for line in ifi:
+            line = line.strip()
+            tokens = line.split("\t")
+            if not "Context" in line:
+                tidy_sig_d[ tokens[header_d["Signature"]] ][ tokens[header_d["Change"]] ][ tokens[header_d["Context"]] ] = float(tokens[header_d["Amount"]])
+                #tidy_sig_d[ tokens[header_d["Signature"]] ] = float(tokens[header_d["Amount"]])
+
+            else:
+                if header_d is not None:
+                    write_err("ERROR: Two headers present. Exiting.")
+                    exit(9)
+                header_d = defaultdict(str)
+                r_header_d = defaultdict(int)
+                ind = 0
+                for i in tokens:
+                    header_d[i] = ind
+                    r_header_d[ind] = i
+                    ind = ind + 1
+
+        return tidy_sig_d, vec_d
+ 
+
+"""
 Undoes alignment trimming of indels,
 replacing bases represented with a "-" with
 the correct base in the reference
@@ -182,6 +242,9 @@ def untrim_indel(chrom, start, zb_start, end, zb_end, ref, alt, fa_ref):
         write_err(["Invalid allele: ", ref, "->", alt, "."])
         raise Exception("Exiting.")
     return chrom, start, end, ref, alt
+
+def context_and_change_to_sbs_feature(context, change):
+    return join_sbs(context[0], change[0], change[-1], context[-1])
 
 """
 Produces a trinucleotide context feature string
@@ -242,6 +305,20 @@ def calculate_indel_length(ref, alt):
     return abs(len(ref) - len(alt)), len(ref), len(alt)
 
 """
+Given a reference start position and a reference + alternate allele,
+calculate the genomic end position of the variant.
+"""
+def calculate_end_position(start_position, ref, alt):
+    var_len, ref_len, alt_len = calculate_indel_length(ref, alt)
+    ## Set the var_len to 1 if we have an insertion OR
+    ## a SNP
+    if alt_len > ref_len:
+        var_len = 1
+    elif var_len == 0:
+        var_len = alt_len
+    return start_position + var_len - 1
+
+"""
 Creates a minimal representation of a variant that is compatible with the SigProfiler text format.
 """
 def make_minimal_record(cancer_type, sample, assay, genome, variant_type, chrom, pos, end, ref, alt, mutation_type):
@@ -255,13 +332,14 @@ GLOBAL_REVCOMP_D = {'A':'T','C':'G','G':'C','T':'A','N':'N'}
 def reverse_complement(seq):
     return "".join([GLOBAL_REVCOMP_D[i] for i in seq[::-1]])
 
+
 """
 Strand complements a sequence (i.e., converts
 it to the canonical T/C strand).
 """
 GLOBAL_STRANDCOMP_D = {'A':'T','C':'C','G':'C','T':'T','N':'N'}
-def strand_complement(seq):
-    return "".join([GLOBAL_STRANDCOMP_D[i] for i in seq])
+def strand_complement(seq, reverse= False):
+    return "".join([GLOBAL_STRANDCOMP_D[i] for i in seq]) if not reverse else "".join([GLOBAL_STRANDCOMP_D[i] for i in seq[::-1]])
 
 
 """
@@ -376,9 +454,13 @@ def detect_repeat(ref_allele, alt_allele,
 def classify_SBS_feature(ref_allele, alt_allele, ref_context_fiveprime, ref_context_threeprime):
     sbs_feature = None
 
-    if strand_complement(ref_allele) == alt_allele:
+    fiveprime_base = ref_context_fiveprime[-1] if ref_allele in GLOBAL_PYRIMIDINE_LIST else reverse_complement(ref_context_threeprime[0])
+    threeprime_base = ref_context_threeprime[0] if ref_allele in GLOBAL_PYRIMIDINE_LIST else reverse_complement(ref_context_fiveprime[-1])
+
+    if ref_allele not in GLOBAL_PYRIMIDINE_LIST:
         alt_allele = reverse_complement(alt_allele)
-    sbs_feature = join_sbs(ref_context_fiveprime[-1], strand_complement(ref_allele), alt_allele, ref_context_threeprime[0])
+        ref_allele = reverse_complement(ref_allele)
+    sbs_feature = join_sbs(fiveprime_base, strand_complement(ref_allele), alt_allele, threeprime_base)
     assert sbs_feature in GLOBAL_SBS96_HASHSET
     
     return sbs_feature
@@ -410,6 +492,7 @@ def maf_line_to_feature(line,
     line = line.strip().split("\t")
     vtype = tokens[header_d["Variant_Type"]]
     chrom = tokens[header_d["Chromosome"]]
+    strand = tokens[header_d["Strand"]]
     sample = tokens[header_d[id_field]]
     start_pos = tokens[header_d["Start_position"]]
     zero_based_start = int(start_pos) - 1;
@@ -421,6 +504,7 @@ def maf_line_to_feature(line,
     alt_allele = str(tokens[header_d["Tumor_Seq_Allele2"]]).upper()
 
     #fasta_allele = str(ref[chrom][zero_based_start:zero_based_start+ref_len])
+    assert(zero_based_start < zero_based_end + ref_len)
     fasta_allele = contextualizer.get_subseq(chrom, zero_based_start, zero_based_end + ref_len)
 
     strand = 1

@@ -7,7 +7,8 @@ class PSTests(unittest.TestCase):
 # classify_SBS_feature(ref_allele, alt_allele, ref_context_fiveprime, ref_context_threeprime):
     def test_sbs_t1(self):
         sbs = classify_SBS_feature("A", "C", "AAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAA")
-        self.assertEqual(sbs, "A[T>C]A")
+        self.assertEqual(sbs, "T[T>G]T")
+
     def test_sbs_t2(self):
         sbs = classify_SBS_feature("C", "G", "AAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAA")
         self.assertEqual(sbs, "A[C>G]A")
@@ -79,6 +80,22 @@ class PSTests(unittest.TestCase):
         mh, mh_len = detect_microhomology("A-", "ATGTTGTTT", 1, 9, "AGTTAATCCAGATAGAAGCACATTT", "GTTTGTTTTGTTTGTTTGTTTGTTT")
         self.assertTrue(mh)
         self.assertEqual(mh_len,3)
+
+    def test_calculate_end_1(self):
+        end = calculate_end_position(192092, "A", "T")
+        self.assertEqual(end, 192092)
+    
+    def test_calculate_end_2(self):
+        end = calculate_end_position(10000, "A", "AAA")
+        self.assertEqual(end, 10000)
+    
+    def test_calculate_end_3(self):
+        end = calculate_end_position(100, "AC", "GG")
+        self.assertEqual(end, 101)
+
+    def test_calculate_end_4(self):
+        end = calculate_end_position(100, "AA", "-")
+        self.assertEqual(end, 101)
         
 if __name__ == '__main__':
     from pycotap import TAPTestRunner
