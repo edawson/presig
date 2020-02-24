@@ -7,7 +7,8 @@ class PSTests(unittest.TestCase):
 # classify_SBS_feature(ref_allele, alt_allele, ref_context_fiveprime, ref_context_threeprime):
     def test_sbs_t1(self):
         sbs = classify_SBS_feature("A", "C", "AAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAA")
-        self.assertEqual(sbs, "A[T>C]A")
+        self.assertEqual(sbs, "T[T>G]T")
+
     def test_sbs_t2(self):
         sbs = classify_SBS_feature("C", "G", "AAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAA")
         self.assertEqual(sbs, "A[C>G]A")

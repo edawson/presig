@@ -92,6 +92,8 @@ GLOBAL_MAX_INDEL_LEN = 5
 GLOBAL_LT_INDEL_WARNING = False
 GLOBAL_UNKOWN_TYPE_WARNING = False
 
+GLOBAL_PYRIMIDINE_LIST = ["C", "T"]
+
 GLOBAL_SBS96_CONTEXTS = ["ACA","ACC","ACG","ACT","ACA","ACC",
                      "ACG","ACT", "ACA","ACC","ACG","ACT",
                      "ATA","ATC","ATG","ATT","ATA","ATC",
@@ -452,9 +454,13 @@ def detect_repeat(ref_allele, alt_allele,
 def classify_SBS_feature(ref_allele, alt_allele, ref_context_fiveprime, ref_context_threeprime):
     sbs_feature = None
 
-    if strand_complement(ref_allele) == alt_allele:
+    fiveprime_base = ref_context_fiveprime[-1] if ref_allele in GLOBAL_PYRIMIDINE_LIST else reverse_complement(ref_context_threeprime[0])
+    threeprime_base = ref_context_threeprime[0] if ref_allele in GLOBAL_PYRIMIDINE_LIST else reverse_complement(ref_context_fiveprime[-1])
+
+    if ref_allele not in GLOBAL_PYRIMIDINE_LIST:
         alt_allele = reverse_complement(alt_allele)
-    sbs_feature = join_sbs(ref_context_fiveprime[-1], strand_complement(ref_allele), alt_allele, ref_context_threeprime[0])
+        ref_allele = reverse_complement(ref_allele)
+    sbs_feature = join_sbs(fiveprime_base, strand_complement(ref_allele), alt_allele, threeprime_base)
     assert sbs_feature in GLOBAL_SBS96_HASHSET
     
     return sbs_feature
