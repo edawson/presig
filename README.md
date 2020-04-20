@@ -14,8 +14,16 @@ MAF file as input, as well as a corresponding references FASTA file.
 ## Requirements
 presig requires pyfaidx for parsing FASTA files and pycotap for testing.
 
+## Installation
+```
+git clone --recursive https://github.com/edawson/presig
+cd presig/
+pip install -r requirements.txt -e .
+```
+
 ## Basic usage
-presig is primarily designed to be used at the command line, though you can also import its individual functions
+presig is primarily designed to be used at the command line,
+though you can also import its individual functions
 into a python environment if desired.
 
 ### Convert a MAF file to feature counts
