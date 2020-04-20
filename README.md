@@ -38,5 +38,12 @@ This will generate two files (`<MAF>.SBS96.tsv` and `<MAF>.ID83.tsv`) in the cur
 python presig/presig.py -m <MAF> -f <FASTA> -s -u > <outputfile>.txt
 ```
 
+### Run SigProfiler (including installing SigProfilerHelper)
+To run SBS96 signatures using the TSV counts matrix generated using presig:
+```
+git clone --recursive https://github.com/edawson/sigprofilerhelper
+python sigprofilerhelper/run_sigprofiler.py -c 16 -i 1000 -s 1 -e 7 -t <MAF>.SBS96.tsv
+```
+
 ## Questions and bug reports
 Please post an issue on the [GitHub](https://github.com/edawson/presig) if you have a question or find a bug.
