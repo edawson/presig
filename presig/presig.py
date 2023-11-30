@@ -588,7 +588,7 @@ def maf_line_to_feature(line,
 
     return feature, feature_type, vtype
 
-if __name__ == "__main__":
+def main():
 
     ## Holds the sample->mutational counts vectors
     ## Each Key is a sample name
@@ -667,3 +667,6 @@ if __name__ == "__main__":
 
 
     
+
+if __name__ == "__main__":
+    main()

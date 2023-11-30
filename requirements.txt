@@ -1,2 +1,2 @@
-pyfaidx==0.5.5.2
-pycotap==1.2.2
+pyfaidx>=0.5.5.2
+pycotap>=1.2.2
