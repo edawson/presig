@@ -16,7 +16,7 @@ setuptools.setup(
         install_requires=["pyfaidx>=0.5.5.2"],
         entry_points = {
             'console_scripts': [
-                'spectre = presig.presig:main',
+                'presig = presig.presig:main',
                 ],
             },
         classifiers=[
