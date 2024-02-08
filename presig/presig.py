@@ -483,20 +483,24 @@ def maf_line_to_feature(line,
                         id_d,
                         logfi = None,
                         sigprofiler = False,
+                        id_field = "Tumor_Sample_Barcode",
                         args = None):
     ## The reported feature, e.g. A[C->A]G or 2:Del:M1
     feature = None
     ## One of indel, SBS, DBS, or SV
     feature_type = None
 
-    line = line.strip().split("\t")
+    tokens = line.strip().split("\t")
     vtype = tokens[header_d["Variant_Type"]]
+    
+    if vtype != "SNP" and vtype != "INS" and vtype != "DEL":
+        write_err(["Invalid mutation type", vtype])
     chrom = tokens[header_d["Chromosome"]]
     strand = tokens[header_d["Strand"]]
     sample = tokens[header_d[id_field]]
-    start_pos = tokens[header_d["Start_position"]]
+    start_pos = tokens[header_d["Start_Position"]]
     zero_based_start = int(start_pos) - 1;
-    end_pos = tokens[header_d["End_position"]]
+    end_pos = tokens[header_d["End_Position"]]
     zero_based_end = int(end_pos) - 1;
 
     ref_allele = str(tokens[header_d["Reference_Allele"]]).upper()
@@ -567,7 +571,7 @@ def maf_line_to_feature(line,
 
         feature = join_id(feat_len, feat_type, feat_context, feat_context_len)
         feature_type = "ID"
-        sample_ID83_d[sample][feature] += 1
+        id_d[sample][feature] += 1
     else:
         global GLOBAL_UNKOWN_TYPE_WARNING
         if not GLOBAL_UNKOWN_TYPE_WARNING:
@@ -590,6 +594,7 @@ def maf_line_to_feature(line,
 
 def main():
 
+    args = parse_args()
     ## Holds the sample->mutational counts vectors
     ## Each Key is a sample name
     sample_SBS96_d = defaultdict(lambda : defaultdict(int))
@@ -599,22 +604,19 @@ def main():
 
 
     header_d = {
-    "Chromosome" : 4,
-    "Start_position" : 5,
-    "End_position" : 6,
-    "Strand" : 7,
-    "Variant_Type" : 9,
-    "Reference_Allele" : 10,
-    "Tumor_Seq_Allele1" : 11,
-    "Tumor_Seq_Allele2" : 12,
-    "Tumor_Sample_Barcode": 15,
-    "Matched_Norm_Sample_Barcode" : 16
-    }
-
-    args = parse_args()
+        "Chromosome" : 4,
+        "Start_position" : 5,
+        "End_position" : 6,
+        "Strand" : 7,
+        "Variant_Type" : 9,
+        "Reference_Allele" : 10,
+        "Tumor_Seq_Allele1" : 11,
+        "Tumor_Seq_Allele2" : 12,
+        "Tumor_Sample_Barcode": 15,
+        "Matched_Norm_Sample_Barcode" : 16
+        }
 
     header_line = None
-    ref = None
     id_field = None
 
     if args.custom_id is not None:
@@ -622,7 +624,6 @@ def main():
     else:
         id_field = "Tumor_Sample_Barcode"
 
-    logname = "logfile.txt"
     logfi = None
     if args.log:
         logfi = open("logfile.txt", "w")
@@ -633,22 +634,23 @@ def main():
     with open(args.maf, "r") as mfi:
         for line in mfi:
             line = line.strip()
-            tokens = line.split("\t")
-            if "Hugo_Symbol" not in line:
-                feature, feature_type, vtype = maf_line_to_feature(line, bc,
-                header_d, sample_SBS96_d,
-                sample_ID83_d, logfi,
-                args.sigprofiler, args)  
+            is_header = line.startswith("#") or line.startswith("Hugo_Symbol")
+            if not is_header:
+                feature, feature_type, vtype = maf_line_to_feature(line,
+                    bc,
+                    header_d,
+                    sample_SBS96_d,
+                    sample_ID83_d,
+                    logfi,
+                    args.sigprofiler,
+                    id_field,
+                    args)  
                 total_var_count_d[vtype] += 1       
-                
-                # if vtype != "SNP" and vtype != "INS" and vtype != "DEL":
-                #     write_err(["Invalid mutation type", vtype])
 
             else:
                 header_line = line
-                if (args.custom_id):
+                if args.custom_id or True: ## TODO: this is now a hack to always reprocess the field order.
                     header_d = reheader(header_line)
-                    continue
     
     write_err("Processed the following number of variants:")
     for t in total_var_count_d:
